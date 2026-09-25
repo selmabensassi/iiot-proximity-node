@@ -27,9 +27,9 @@ A proximity sensor node for an industrial safety scenario: it detects when a veh
 The focus is the **wireless communication layer** — how the 2.4 GHz indoor channel attenuates with distance, and how fast and reliably MQTT delivers sensor data.
 
 <div align="center">
-  <img src="docs/hardware.jpg" alt="ESP32 and HC-SR04 on breadboard" height="320"/>
+  <img src="docs/hardware.jpg" alt="ESP32 and HC-SR04 on breadboard" height="260"/>
   &nbsp;
-  <img src="docs/dashboard.png" alt="Live dashboard" height="320"/>
+  <img src="docs/dashboard.png" alt="Live dashboard" height="260"/>
   <br/>
   <sub><i>Left: ESP32 + HC-SR04 ultrasonic sensor · Right: live WebSocket dashboard</i></sub>
 </div>
@@ -80,8 +80,8 @@ All numbers below are computed from [`analysis/data/`](analysis/data) with [`iio
 The Wi-Fi hotspot was moved from 1 m to 5 m while the node logged RSSI continuously (moved ±10–20 cm at each position to average out multipath).
 
 <div align="center">
-  <img src="docs/plot1_rssi_vs_distance.png" alt="RSSI vs distance with ITU-R model" width="48%"/>
-  <img src="docs/plot2_rssi_over_time.png" alt="RSSI over time segmented by distance" width="48%"/>
+  <img src="docs/plot1_rssi_vs_distance.png" alt="RSSI vs distance with ITU-R model" height="250"/>
+  <img src="docs/plot2_rssi_over_time.png" alt="RSSI over time segmented by distance" height="250"/>
 </div>
 
 | Distance | Mean RSSI | Std dev | Samples | ITU-R model (N = 28) |
@@ -102,7 +102,8 @@ The Wi-Fi hotspot was moved from 1 m to 5 m while the node logged RSSI continuou
 
 | Metric | Value |
 |---|---|
-| Mean | 3.3 ms |
+| Mean (all samples) | 3.3 ms |
+| Mean (excluding 18 samples > 50 ms, as plotted) | 2.6 ms |
 | Median | 2 ms |
 | Under 5 ms | 93.2 % |
 | Under 10 ms | 99.7 % |
