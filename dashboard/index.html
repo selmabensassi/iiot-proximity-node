@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IIoT Node — Live Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #fff; min-height: 100vh; padding: 20px; }
+  h1 { font-size: 20px; font-weight: 500; color: #aaa; margin-bottom: 20px; letter-spacing: 0.05em; }
+  h1 span { color: #fff; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-wide { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-full { margin-bottom: 16px; }
+
+  .card { background: #1a1d27; border-radius: 12px; padding: 20px; border: 1px solid #2a2d3a; }
+
+  .metric-label { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .metric-value { font-size: 36px; font-weight: 600; line-height: 1; }
+  .metric-unit { font-size: 14px; color: #666; margin-left: 4px; }
+  .metric-sub { font-size: 12px; color: #555; margin-top: 6px; }
+
+  .status-card { border-radius: 12px; padding: 20px; border: 1px solid; text-align: center; }
+  .status-clear { background: #0d2b1a; border-color: #1a5c35; }
+  .status-warning { background: #2b1a0d; border-color: #8b4a0a; }
+  .status-danger { background: #2b0d0d; border-color: #8b1a1a; }
+  .status-icon { font-size: 32px; margin-bottom: 8px; }
+  .status-text { font-size: 18px; font-weight: 600; }
+  .status-clear .status-text { color: #2ecc71; }
+  .status-warning .status-text { color: #f39c12; }
+  .status-danger .status-text { color: #e74c3c; }
+
+  .gauge-wrap { position: relative; width: 100%; padding-top: 8px; }
+  .gauge-svg { width: 100%; height: auto; }
+
+  .chart-wrap { position: relative; height: 180px; }
+
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .conn-ok { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+  .conn-err { background: #e74c3c; }
+  .conn-label { font-size: 12px; color: #666; display: flex; align-items: center; }
+
+  .packet-bar-wrap { margin-top: 12px; }
+  .packet-bar-bg { background: #2a2d3a; border-radius: 4px; height: 8px; overflow: hidden; }
+  .packet-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; background: #2ecc71; }
+  .packet-label { display: flex; justify-content: space-between; font-size: 11px; color: #555; margin-top: 4px; }
+
+  .seq-badge { display: inline-block; background: #2a2d3a; border-radius: 6px; padding: 2px 8px; font-size: 11px; color: #666; margin-top: 6px; }
+
+  .log-bar { display: flex; align-items: center; justify-content: space-between; background: #1a1d27; border-radius: 12px; padding: 14px 20px; border: 1px solid #2a2d3a; margin-bottom: 16px; }
+  .log-info { font-size: 13px; color: #666; }
+  .log-info span { color: #2ecc71; font-weight: 500; }
+  .btn { background: #2a2d3a; color: #fff; border: 1px solid #444; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: background 0.2s; }
+  .btn:hover { background: #363a4a; }
+  .btn-danger { color: #e74c3c; border-color: #5c2a2a; }
+  .btn-danger:hover { background: #2b1a1a; }
+  .btn-group { display: flex; gap: 8px; }
+
+  canvas { display: block; }
+</style>
+</head>
+<body>
+
+<h1>IIoT Node — <span>Live Dashboard</span> <span class="conn-label" id="connStatus" style="display:inline-flex;margin-left:16px"><span class="conn-dot conn-err" id="connDot"></span><span id="connText">Connecting...</span></span></h1>
+
+<!-- CSV logging bar -->
+<div class="log-bar">
+  <div class="log-info">CSV log: <span id="logCount">0</span> rows recorded</div>
+  <div class="btn-group">
+    <button class="btn" onclick="downloadCSV()">Download CSV</button>
+    <button class="btn btn-danger" onclick="clearLog()">Clear log</button>
+  </div>
+</div>
+
+<!-- Row 1: Status + Distance gauge + RSSI gauge -->
+<div class="grid">
+  <div id="statusCard" class="status-card status-clear">
+    <div class="status-icon" id="statusIcon">✓</div>
+    <div class="status-text" id="statusText">CLEAR</div>
+    <div style="font-size:12px;color:#555;margin-top:6px" id="statusDist">—</div>
+  </div>
+
+  <div class="card">
+    <div class="metric-label">Distance</div>
+    <div class="gauge-wrap">
+      <svg class="gauge-svg" viewBox="0 0 200 110">
+        <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#2a2d3a" stroke-width="16" stroke-linecap="round"/>
+        <path id="gaugeArc" d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#2ecc71" stroke-width="16" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="251"/>
+        <text x="100" y="90" text-anchor="middle" font-size="28" font-weight="600" fill="#fff" id="gaugeVal">—</text>
+        <text x="100" y="108" text-anchor="middle" font-size="11" fill="#555">cm</text>
+        <text x="20" y="108" text-anchor="middle" font-size="10" fill="#555">0</text>
+        <text x="180" y="108" text-anchor="middle" font-size="10" fill="#555">400</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="metric-label">WiFi RSSI</div>
+    <div class="gauge-wrap">
+      <svg class="gauge-svg" viewBox="0 0 200 110">
+        <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#2a2d3a" stroke-width="16" stroke-linecap="round"/>
+        <path id="rssiArc" d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#378ADD" stroke-width="16" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="188"/>
+        <text x="100" y="90" text-anchor="middle" font-size="28" font-weight="600" fill="#fff" id="rssiVal">—</text>
+        <text x="100" y="108" text-anchor="middle" font-size="11" fill="#555">dBm</text>
+        <text x="20" y="108" text-anchor="middle" font-size="10" fill="#555">-100</text>
+        <text x="180" y="108" text-anchor="middle" font-size="10" fill="#555">0</text>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- Row 2: Distance chart + Metrics -->
+<div class="grid-wide">
+  <div class="card">
+    <div class="metric-label" style="margin-bottom:12px">Distance over time</div>
+    <div class="chart-wrap">
+      <canvas id="distChart" role="img" aria-label="Distance over time line chart"></canvas>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <div class="metric-label">TX Latency</div>
+      <div class="metric-value" id="txLat">—<span class="metric-unit">ms</span></div>
+      <div class="metric-sub">ESP32 publish time</div>
+    </div>
+    <div class="card">
+      <div class="metric-label">E2E Latency</div>
+      <div class="metric-value" id="e2eLat">—<span class="metric-unit">ms</span></div>
+      <div class="metric-sub">Sensor to dashboard</div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Packet loss -->
+<div class="card grid-full">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div class="metric-label">Packet Loss</div>
+      <div class="metric-value" id="pktLoss">0.0<span class="metric-unit">%</span></div>
+    </div>
+    <div style="text-align:right">
+      <div class="seq-badge" id="seqBadge">seq: —</div>
+      <div class="metric-sub" style="margin-top:6px" id="pktDetail">received — / expected —</div>
+    </div>
+  </div>
+  <div class="packet-bar-wrap">
+    <div class="packet-bar-bg"><div class="packet-bar-fill" id="pktBar" style="width:100%"></div></div>
+    <div class="packet-label"><span>0%</span><span>loss</span><span>100%</span></div>
+  </div>
+</div>
+
+<script>
+const BROKER = 'ws://localhost:9001';
+const client = mqtt.connect(BROKER);
+
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
+
+// CSV logging
+const log = [];
+let currentRSSI = 0;
+let currentTxLat = 0;
+let currentLoss = 0;
+
+function logRow(dist, rssi, txLat, e2e, loss) {
+  log.push([new Date().toISOString(), dist.toFixed(1), rssi, txLat, e2e, loss.toFixed(1)].join(','));
+  document.getElementById('logCount').textContent = log.length;
+}
+
+function downloadCSV() {
+  if (log.length === 0) { alert('No data logged yet.'); return; }
+  const header = 'timestamp,distance_cm,rssi_dbm,tx_latency_ms,e2e_latency_ms,packet_loss_pct\n';
+  const blob = new Blob([header + log.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'iiot_data_' + new Date().toISOString().slice(0,19).replace(/:/g,'-') + '.csv';
+  a.click();
+}
+
+function clearLog() {
+  if (!confirm('Clear all logged data?')) return;
+  log.length = 0;
+  totalExpected = 0;
+  totalReceived = 0;
+  lastSeq = null;
+  document.getElementById('logCount').textContent = '0';
+}
+
+client.on('connect', () => {
+  connDot.className = 'conn-dot conn-ok';
+  connText.textContent = 'Connected';
+  client.subscribe('iiot/node1/distance');
+  client.subscribe('iiot/node1/rssi');
+  client.subscribe('iiot/node1/latency');
+  client.subscribe('iiot/node1/seq');
+});
+
+client.on('error', () => {
+  connDot.className = 'conn-dot conn-err';
+  connText.textContent = 'Connection error';
+});
+
+client.on('offline', () => {
+  connDot.className = 'conn-dot conn-err';
+  connText.textContent = 'Disconnected';
+});
+
+// Distance chart
+const MAX_POINTS = 60;
+const labels = [];
+const distData = [];
+const ctx = document.getElementById('distChart').getContext('2d');
+const distChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [{
+      data: distData,
+      borderColor: '#378ADD',
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false
+    }, {
+      data: Array(MAX_POINTS).fill(50),
+      borderColor: '#e74c3c',
+      borderWidth: 1,
+      borderDash: [4,4],
+      pointRadius: 0,
+      fill: false
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { display: false },
+      y: { min: 0, max: 250, ticks: { color: '#555', font: { size: 10 } }, grid: { color: '#2a2d3a' } }
+    }
+  }
+});
+
+// Packet loss tracking
+let lastSeq = null;
+let totalExpected = 0;
+let totalReceived = 0;
+
+function setArc(id, value, min, max) {
+  const arc = document.getElementById(id);
+  const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  arc.style.strokeDashoffset = 251 - pct * 251;
+}
+
+function getDistColor(d) {
+  if (d < 50) return '#e74c3c';
+  if (d < 150) return '#f39c12';
+  return '#2ecc71';
+}
+
+client.on('message', (topic, payload) => {
+  const raw = payload.toString();
+  const now = new Date().toLocaleTimeString();
+
+  if (topic === 'iiot/node1/distance') {
+    const parts = raw.split(',');
+    const dist = parseFloat(parts[0]);
+    const espTime = parts.length > 1 ? parseInt(parts[1]) : null;
+
+    document.getElementById('gaugeVal').textContent = Math.round(dist);
+    const arc = document.getElementById('gaugeArc');
+    arc.style.stroke = getDistColor(dist);
+    setArc('gaugeArc', dist, 0, 400);
+
+    const card = document.getElementById('statusCard');
+    const icon = document.getElementById('statusIcon');
+    const text = document.getElementById('statusText');
+    const sub = document.getElementById('statusDist');
+    sub.textContent = dist.toFixed(1) + ' cm';
+
+    if (dist < 50) {
+      card.className = 'status-card status-danger';
+      icon.textContent = '⚠';
+      text.textContent = 'OBSTACLE DETECTED';
+    } else if (dist < 150) {
+      card.className = 'status-card status-warning';
+      icon.textContent = '!';
+      text.textContent = 'APPROACHING';
+    } else {
+      card.className = 'status-card status-clear';
+      icon.textContent = '✓';
+      text.textContent = 'CLEAR';
+    }
+
+    let e2e = 0;
+    if (espTime) {
+      e2e = Date.now() - espTime;
+      if (e2e > 0 && e2e < 5000) {
+        document.getElementById('e2eLat').innerHTML = e2e + '<span class="metric-unit">ms</span>';
+      }
+    }
+
+    labels.push(now);
+    distData.push(dist);
+    if (labels.length > MAX_POINTS) { labels.shift(); distData.shift(); }
+    distChart.data.datasets[1].data = Array(labels.length).fill(50);
+    distChart.update('none');
+
+    logRow(dist, currentRSSI, currentTxLat, e2e, currentLoss);
+  }
+
+  if (topic === 'iiot/node1/rssi') {
+    currentRSSI = parseInt(raw);
+    document.getElementById('rssiVal').textContent = currentRSSI;
+    setArc('rssiArc', currentRSSI, -100, 0);
+  }
+
+  if (topic === 'iiot/node1/latency') {
+    currentTxLat = parseInt(raw);
+    document.getElementById('txLat').innerHTML = currentTxLat + '<span class="metric-unit">ms</span>';
+  }
+
+  if (topic === 'iiot/node1/seq') {
+    const seq = parseInt(raw);
+    document.getElementById('seqBadge').textContent = 'seq: ' + seq;
+
+    if (lastSeq !== null && seq > lastSeq) {
+      totalExpected += (seq - lastSeq);
+      totalReceived += 1;
+    } else if (lastSeq === null) {
+      totalExpected += 1;
+      totalReceived += 1;
+    }
+    lastSeq = seq;
+
+    const loss = totalExpected > 0 ? ((totalExpected - totalReceived) / totalExpected * 100) : 0;
+    currentLoss = loss;
+    document.getElementById('pktLoss').innerHTML = loss.toFixed(1) + '<span class="metric-unit">%</span>';
+    document.getElementById('pktDetail').textContent = 'received ' + totalReceived + ' / expected ' + totalExpected;
+
+    const fill = document.getElementById('pktBar');
+    const received_pct = totalExpected > 0 ? (totalReceived / totalExpected * 100) : 100;
+    fill.style.width = received_pct.toFixed(1) + '%';
+    fill.style.background = loss > 10 ? '#e74c3c' : loss > 2 ? '#f39c12' : '#2ecc71';
+  }
+});
+</script>
+</body>
+</html>
